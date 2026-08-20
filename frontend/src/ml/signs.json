@@ -1,0 +1,72 @@
+[
+  {
+    "id": 0,
+    "name": "HELLO",
+    "displayText": "Hello 👋",
+    "ttsText": "Hello",
+    "description": "Open flat palm facing camera with fingers together upright (static wave/salute pose)."
+  },
+  {
+    "id": 1,
+    "name": "YES",
+    "displayText": "Yes 👍",
+    "ttsText": "Yes",
+    "description": "Closed fist with thumb pointing upright (thumbs-up pose)."
+  },
+  {
+    "id": 2,
+    "name": "NO",
+    "displayText": "No 👎",
+    "ttsText": "No",
+    "description": "Closed fist with thumb pointing down (thumbs-down pose)."
+  },
+  {
+    "id": 3,
+    "name": "THANK YOU",
+    "displayText": "Thank You 🙏",
+    "ttsText": "Thank you",
+    "description": "Flat open hand with fingers pointing upward near chest (static appreciation pose)."
+  },
+  {
+    "id": 4,
+    "name": "PLEASE",
+    "displayText": "Please 🤲",
+    "ttsText": "Please",
+    "description": "Open hand with palm facing inward towards chest flat."
+  },
+  {
+    "id": 5,
+    "name": "HELP",
+    "displayText": "Help 🆘",
+    "ttsText": "Help",
+    "description": "Thumbs-up hand held resting directly above open flat palm."
+  },
+  {
+    "id": 6,
+    "name": "SORRY",
+    "displayText": "Sorry ✊",
+    "ttsText": "Sorry",
+    "description": "Closed fist held over chest (static key-pose approximation)."
+  },
+  {
+    "id": 7,
+    "name": "STOP",
+    "displayText": "Stop 🛑",
+    "ttsText": "Stop",
+    "description": "Open vertical palm facing directly forward with spread fingers."
+  },
+  {
+    "id": 8,
+    "name": "GOOD",
+    "displayText": "Good / OK 👌",
+    "ttsText": "Good",
+    "description": "Index finger touching tip of thumb forming an O-shape (OK sign)."
+  },
+  {
+    "id": 9,
+    "name": "LOVE",
+    "displayText": "I Love You 🤟",
+    "ttsText": "I love you",
+    "description": "Thumb, index finger, and pinky extended upward; middle and ring folded."
+  }
+]

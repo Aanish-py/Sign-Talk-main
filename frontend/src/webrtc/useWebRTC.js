@@ -352,6 +352,7 @@ export function useWebRTC(roomId, localStream, role = 'unified', callbacks = {})
     remotePeerInfo,
     isDataChannelReady,
     chatMessages,
+    peerConnectionRef,
     sendSign,
     sendSpeechTranscript,
     sendChatMessage

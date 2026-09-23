@@ -71,27 +71,30 @@ export default function CameraPreview({ onNavigate }) {
     const primaryVector = normalizedVectors[0];
 
     if (signClassifierService.isReady) {
-      const pred = signClassifierService.predict(primaryVector);
-      setRawPrediction(pred);
+      signClassifierService.predict(primaryVector).then((pred) => {
+        if (pred) {
+          setRawPrediction(pred);
 
-      const state = smootherRef.current.process(pred, (confirmedSign) => {
-        // Triggered when temporal stability confirms the sign
-        if (isTTSActiveRef.current) {
-          ttsService.speak(confirmedSign.ttsText);
+          const state = smootherRef.current.process(pred, (confirmedSign) => {
+            // Triggered when temporal stability confirms the sign
+            if (isTTSActiveRef.current) {
+              ttsService.speak(confirmedSign.ttsText);
+            }
+
+            setRecentSpeechEvents((prev) => [
+              {
+                id: Date.now(),
+                text: confirmedSign.ttsText,
+                display: confirmedSign.displayText,
+                time: new Date().toLocaleTimeString()
+              },
+              ...prev.slice(0, 9)
+            ]);
+          });
+
+          setSmoothState(state);
         }
-
-        setRecentSpeechEvents((prev) => [
-          {
-            id: Date.now(),
-            text: confirmedSign.ttsText,
-            display: confirmedSign.displayText,
-            time: new Date().toLocaleTimeString()
-          },
-          ...prev.slice(0, 9)
-        ]);
       });
-
-      setSmoothState(state);
     }
   }, [isVideoDisabled]);
 

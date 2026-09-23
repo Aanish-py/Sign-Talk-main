@@ -1,87 +1,29 @@
-import * as tf from '@tensorflow/tfjs';
 import signsData from './signs.json';
 import { generateCanonicalDataset } from './canonicalDataset';
 
-const MODEL_STORAGE_KEY = 'indexeddb://signspeak-classifier-model';
+const ML_SERVER_URL = 'http://localhost:5001';
 
 /**
  * SignClassifierService
  * 
- * Manages the TensorFlow.js deep neural network classifier for the 10 static ISL signs:
- * - 63-D Input Vector -> 128 -> 64 -> 32 -> 10 Softmax classes
- * - In-browser model training with real-time epoch callbacks
- * - Sub-5ms fast inference with tf.tidy memory isolation
- * - Model persistence in IndexedDB with automated baseline fallback
+ * Proxies neural network training and predictions to the Python ML server (port 5001):
+ * - Predict: Sends 63-element landmark vector to Python
+ * - Train: Sends canonical or custom datasets to Python for MLPClassifier fitting
  */
 class SignClassifierService {
   constructor() {
-    this.model = null;
     this.isTraining = false;
     this.isReady = false;
     this.initPromise = null;
   }
 
   /**
-   * Builds the Sequential Neural Network architecture.
-   */
-  createModelArchitecture() {
-    const model = tf.sequential();
-
-    // Input Layer + Hidden Layer 1
-    model.add(
-      tf.layers.dense({
-        inputShape: [63],
-        units: 128,
-        activation: 'relu',
-        kernelInitializer: 'heNormal'
-      })
-    );
-
-    // Regularization Dropout to prevent overfitting on user-recorded hand samples
-    model.add(tf.layers.dropout({ rate: 0.2 }));
-
-    // Hidden Layer 2
-    model.add(
-      tf.layers.dense({
-        units: 64,
-        activation: 'relu',
-        kernelInitializer: 'heNormal'
-      })
-    );
-
-    // Hidden Layer 3
-    model.add(
-      tf.layers.dense({
-        units: 32,
-        activation: 'relu',
-        kernelInitializer: 'heNormal'
-      })
-    );
-
-    // Output Layer (10 Softmax Probabilities)
-    model.add(
-      tf.layers.dense({
-        units: signsData.length,
-        activation: 'softmax'
-      })
-    );
-
-    model.compile({
-      optimizer: tf.train.adam(0.002),
-      loss: 'categoricalCrossentropy',
-      metrics: ['accuracy']
-    });
-
-    return model;
-  }
-
-  /**
-   * Initializes the classifier. Loads saved model from IndexedDB,
-   * or automatically trains on canonical baseline dataset in ~1.5 seconds.
+   * Initializes the classifier. Performs self-check against the Python ML server,
+   * and automatically trains on canonical baseline dataset if the model is not initialized.
    */
   async initialize(onProgress = null) {
-    if (this.isReady && this.model) {
-      return this.model;
+    if (this.isReady) {
+      return true;
     }
 
     if (this.initPromise) {
@@ -90,33 +32,34 @@ class SignClassifierService {
 
     this.initPromise = (async () => {
       try {
-        console.log('[TF.js] Initializing Sign Classifier...');
-        await tf.ready();
-        console.log('[TF.js] Backend ready:', tf.getBackend());
-
-        // 1. Try loading previously saved model from IndexedDB
+        console.log('[ML Client] Initializing connection to Python ML server...');
+        
+        // Check if server is reachable and if model is already loaded
         try {
-          const loadedModel = await tf.loadLayersModel(MODEL_STORAGE_KEY);
-          loadedModel.compile({
-            optimizer: tf.train.adam(0.002),
-            loss: 'categoricalCrossentropy',
-            metrics: ['accuracy']
+          const dummyVector = new Array(63).fill(0);
+          const checkRes = await fetch(`${ML_SERVER_URL}/predict`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ vector: dummyVector })
           });
-          this.model = loadedModel;
-          this.isReady = true;
-          console.log('[TF.js] Successfully loaded saved model from IndexedDB.');
-          return this.model;
-        } catch (loadErr) {
-          console.log('[TF.js] No saved model found in IndexedDB. Training baseline model...');
+          
+          if (checkRes.ok) {
+            console.log('[ML Client] Python ML server ready and model is pre-loaded.');
+            this.isReady = true;
+            return true;
+          }
+        } catch (e) {
+          console.warn('[ML Client] Python ML server checking failed. Attempting baseline training...', e);
         }
 
-        // 2. Train baseline model on augmented canonical dataset
+        // If checking failed or model was not trained, train the baseline model
+        console.log('[ML Client] Model not ready on Python server. Generating baseline dataset & training...');
         const dataset = generateCanonicalDataset(60);
         await this.train(dataset, onProgress, 25);
         this.isReady = true;
-        return this.model;
+        return true;
       } catch (err) {
-        console.error('[TF.js] Initialization error:', err);
+        console.error('[ML Client] Initialization error:', err);
         this.initPromise = null;
         throw err;
       }
@@ -126,11 +69,7 @@ class SignClassifierService {
   }
 
   /**
-   * Trains the neural network on provided dataset.
-   * 
-   * @param {{features: Array<Float32Array|Array<number>>, labels: Array<Array<number>>}} dataset 
-   * @param {Function} onEpochEnd Callback function (info: {epoch, loss, accuracy, totalEpochs})
-   * @param {number} epochs Number of training epochs (default: 30)
+   * Sends features and labels to Python server to train.
    */
   async train(dataset, onEpochEnd = null, epochs = 30) {
     if (!dataset || !dataset.features || dataset.features.length === 0) {
@@ -140,70 +79,47 @@ class SignClassifierService {
     this.isTraining = true;
 
     try {
-      // Discard previous model instance
-      if (this.model) {
-        this.model.dispose();
+      console.log(`[ML Client] Sending ${dataset.features.length} samples to Python backend for training...`);
+
+      // Mock epoch callbacks for frontend visual state
+      if (onEpochEnd) {
+        onEpochEnd({
+          epoch: 5,
+          totalEpochs: 30,
+          loss: 'Calculating...',
+          accuracy: 'Training...'
+        });
       }
 
-      this.model = this.createModelArchitecture();
-
-      const numSamples = dataset.features.length;
-      const flatFeatures = [];
-      dataset.features.forEach((vec) => {
-        for (let i = 0; i < 63; i++) {
-          flatFeatures.push(vec[i] || 0);
-        }
+      const response = await fetch(`${ML_SERVER_URL}/train`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          features: dataset.features.map(f => Array.from(f)),
+          labels: dataset.labels
+        })
       });
 
-      const flatLabels = [];
-      dataset.labels.forEach((oneHot) => {
-        for (let i = 0; i < signsData.length; i++) {
-          flatLabels.push(oneHot[i] || 0);
-        }
-      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to train model on Python server');
+      }
 
-      const xs = tf.tensor2d(flatFeatures, [numSamples, 63]);
-      const ys = tf.tensor2d(flatLabels, [numSamples, signsData.length]);
+      const result = await response.json();
+      console.log('[ML Client] Training completed successfully:', result);
 
-      console.log(`[TF.js] Training model on ${numSamples} samples for ${epochs} epochs...`);
-
-      await this.model.fit(xs, ys, {
-        epochs: epochs,
-        batchSize: 32,
-        shuffle: true,
-        validationSplit: 0.15,
-        callbacks: {
-          onEpochEnd: async (epoch, logs) => {
-            if (onEpochEnd) {
-              onEpochEnd({
-                epoch: epoch + 1,
-                totalEpochs: epochs,
-                loss: logs.loss ? logs.loss.toFixed(4) : '0',
-                accuracy: logs.acc ? (logs.acc * 100).toFixed(1) : (logs.accuracy ? (logs.accuracy * 100).toFixed(1) : '100'),
-                valLoss: logs.val_loss ? logs.val_loss.toFixed(4) : null,
-                valAccuracy: logs.val_acc ? (logs.val_acc * 100).toFixed(1) : (logs.val_accuracy ? (logs.val_accuracy * 100).toFixed(1) : null)
-              });
-            }
-            // Yield to browser UI thread
-            await tf.nextFrame();
-          }
-        }
-      });
-
-      xs.dispose();
-      ys.dispose();
-
-      // Save trained model to IndexedDB
-      try {
-        await this.model.save(MODEL_STORAGE_KEY);
-        console.log('[TF.js] Trained model saved to IndexedDB.');
-      } catch (saveErr) {
-        console.warn('[TF.js] Could not save model to IndexedDB:', saveErr);
+      if (onEpochEnd) {
+        onEpochEnd({
+          epoch: epochs,
+          totalEpochs: epochs,
+          loss: result.loss.toFixed(4),
+          accuracy: result.accuracy.toFixed(1)
+        });
       }
 
       this.isReady = true;
       this.isTraining = false;
-      return this.model;
+      return true;
     } catch (err) {
       this.isTraining = false;
       throw err;
@@ -211,31 +127,31 @@ class SignClassifierService {
   }
 
   /**
-   * Runs real-time inference on a 63-element normalized vector.
+   * Runs real-time inference via Python ML server.
    * 
    * @param {Float32Array|Array<number>} normalizedVector 
-   * @returns {{signId: number, name: string, displayText: string, ttsText: string, confidence: number, probabilities: Array<number>} | null}
+   * @returns {Promise<{signId: number, name: string, displayText: string, ttsText: string, confidence: number, probabilities: Array<number>} | null>}
    */
-  predict(normalizedVector) {
-    if (!this.model || !this.isReady || !normalizedVector || normalizedVector.length !== 63) {
+  async predict(normalizedVector) {
+    if (!this.isReady || !normalizedVector || normalizedVector.length !== 63) {
       return null;
     }
 
-    return tf.tidy(() => {
-      const inputTensor = tf.tensor2d([Array.from(normalizedVector)], [1, 63]);
-      const predictionTensor = this.model.predict(inputTensor);
-      const probabilities = Array.from(predictionTensor.dataSync());
+    try {
+      const response = await fetch(`${ML_SERVER_URL}/predict`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vector: Array.from(normalizedVector) })
+      });
 
-      // Find top predicted class
-      let maxConfidence = -1;
-      let topIndex = 0;
-
-      for (let i = 0; i < probabilities.length; i++) {
-        if (probabilities[i] > maxConfidence) {
-          maxConfidence = probabilities[i];
-          topIndex = i;
-        }
+      if (!response.ok) {
+        return null;
       }
+
+      const result = await response.json();
+      const topIndex = result.signId;
+      const confidence = result.confidence;
+      const probabilities = result.probabilities;
 
       const signMeta = signsData[topIndex] || {
         id: topIndex,
@@ -249,16 +165,24 @@ class SignClassifierService {
         name: signMeta.name,
         displayText: signMeta.displayText,
         ttsText: signMeta.ttsText,
-        confidence: maxConfidence,
+        confidence: confidence,
         probabilities: probabilities
       };
-    });
+    } catch (err) {
+      console.error('[ML Client] Prediction failed:', err);
+      return null;
+    }
   }
 
   /**
    * Resets model to canonical baseline.
    */
   async resetToBaseline(onProgress = null) {
+    try {
+      await fetch(`${ML_SERVER_URL}/reset`, { method: 'POST' });
+    } catch (e) {
+      console.warn('[ML Client] Reset request to Python failed:', e);
+    }
     const dataset = generateCanonicalDataset(60);
     return this.train(dataset, onProgress, 25);
   }

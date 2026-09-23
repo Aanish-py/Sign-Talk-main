@@ -82,8 +82,11 @@ export default function DataCollector({ onNavigate }) {
 
     // Run live test inference
     if (signClassifierService.isReady && !isTraining) {
-      const pred = signClassifierService.predict(primaryVector);
-      setTestPrediction(pred);
+      signClassifierService.predict(primaryVector).then((pred) => {
+        if (pred) {
+          setTestPrediction(pred);
+        }
+      });
     }
   }, [selectedSignId, samplesTarget, isTraining]);
 

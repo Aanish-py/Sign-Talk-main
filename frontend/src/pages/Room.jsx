@@ -100,18 +100,21 @@ export default function Room({ roomId, isHost = false, onLeaveCall }) {
     const primaryVector = normalizedVectors[0];
 
     if (signClassifierService.isReady) {
-      const pred = signClassifierService.predict(primaryVector);
-      setLocalPredictedSign(pred);
+      signClassifierService.predict(primaryVector).then((pred) => {
+        if (pred) {
+          setLocalPredictedSign(pred);
 
-      smootherRef.current.process(pred, (confirmedSign) => {
-        // Send confirmed sign across WebRTC DataChannel to peer
-        sendSign(confirmedSign);
+          smootherRef.current.process(pred, (confirmedSign) => {
+            // Send confirmed sign across WebRTC DataChannel to peer
+            sendSign(confirmedSign);
 
-        // Record to local sign history
-        setSignHistory((prev) => [
-          { id: Date.now(), source: 'You', text: confirmedSign.ttsText, display: confirmedSign.displayText, time: new Date().toLocaleTimeString() },
-          ...prev.slice(0, 19)
-        ]);
+            // Record to local sign history
+            setSignHistory((prev) => [
+              { id: Date.now(), source: 'You', text: confirmedSign.ttsText, display: confirmedSign.displayText, time: new Date().toLocaleTimeString() },
+              ...prev.slice(0, 19)
+            ]);
+          });
+        }
       });
     }
   }, [isVideoDisabled, sendSign]);
